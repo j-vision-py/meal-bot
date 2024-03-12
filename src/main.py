@@ -69,8 +69,8 @@ def scrape_menu():
 
 
 # 이미지를 생성하는 함수
-def create_menu_image(menu_text):
-    if menu_text is None:
+def create_menu_image(menus):
+    if menus is None:
         return None
     
     #이미지 설정
