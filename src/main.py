@@ -83,7 +83,7 @@ def create_menu_image(menu_text):
 
     image = Image.new('RGB', (image_width, image_height, backgroung_color))
     draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype("aral.ttf", font_size) # 폰트 파일 경로 수정 필요
+    font = ImageFont.truetype("font.ttf", font_size) # 폰트 파일 경로 수정 필요
 
     current_height = padding
     for date, menu_text in menus:
