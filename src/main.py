@@ -8,7 +8,8 @@ import time
 import argparse
 import requests
 import pickle
-
+import textwrap
+import ast
 from bs4 import BeautifulSoup 
 # 웹 페이지의 HTML 또는 XML을 파싱하기 위한 Python 라이브러리, bs4 패키지 안에 잇다. 
 from datetime import datetime
@@ -88,34 +89,52 @@ def get_lunch_and_dinner_menu_for_date():
         return {}
 
 lunch_menu, dinner_menu = get_lunch_and_dinner_menu_for_date()
-
-# 이미지를 생성하는 함수
-def create_menu_image(daily_menus):
-    if daily_menus is None:
+def create_menu_image(daily_menus: dict[str, list[str]]) -> str:
+    if not daily_menus:
         return None
     
     #이미지 설정
     image_width = 1080
-    image_height=1920    
-    backgroung_color=(255,255,255)
-    text_color=(0,0,0)
-    font_size=40
-    padding = 50
+    image_height= 1920    
+    backgroung_color = (255,255,255)
+    text_color = (0,0,0)
+    font_size = 72
 
     image = Image.new('RGB', (image_width, image_height), backgroung_color)
     draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype("font.ttf", font_size) # 폰트 파일 경로 수정 필요
+    font = ImageFont.truetype("./font.ttf", font_size) # 폰트 파일 경로 수정 필요
 
-    current_height = padding
-    for menu_text in daily_menus:
-        current_height += font_size + 10 #날짜와 메뉴 사이 간격 조정
-        draw.text((padding, current_height), menu_text, fill=text_color, font=font)
-        current_height += (menu_text.count('\n') + 1) * font_size + 20
+    contents = []
+    for date, menu in daily_menus.items():
+        contents.append(date)
+        sub = False
+        for food in menu:
+            if '<' in food:
+                sub = False
+                contents.append('')
+            prefix = ''
+            if sub:
+                prefix = '- '
+            contents.append(prefix + food)
+            if '<' in food:
+                sub = True
+
+    content = '\n'.join(contents)
+
+    text_bbox = draw.textbbox((0, 0), content, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+    x = (image_width - text_width) / 2
+    y = (image_height - text_height) / 2
+
+    draw.text((x, y), content, fill=text_color, font=font, align='left')
 
     today_str = datetime.now().strftime('%Y%m%d')
-    image_path = f'{IG_IMAGE_PATH}/{today_str}.jpg'
+    image_path = f'./{today_str}.jpg'
     image.save(image_path)
     return image_path
+
+
 
 # 인스타그램 스토리 업로드 하는 함수
 def upload_story(image_path):
@@ -128,15 +147,26 @@ def upload_story(image_path):
         cl.dump_settings(IG_CREDENTIAL_PATH)
 
 def upload_lunch_menu():
+    global lunch_menu
     today_date=datetime.now().strftime('%Y.%m월 %d일')
-    print(lunch_menu)
+    split_data = lunch_menu.split(': ')
+    date = split_data[0]
+    menu_list_str = split_data[1]
+    menu_list = ast.literal_eval(menu_list_str)
+    lunch_menu ={date: menu_list}
     if lunch_menu:
         image_path=create_menu_image(lunch_menu)
         upload_story(image_path)
 
+
 def upload_dinner_menu():
+    global dinner_menu
     today_date=datetime.now().strftime('%Y.%m월 %d일')
-    print(dinner_menu)
+    split_data = dinner_menu.split(': ')
+    date = split_data[0]
+    menu_list_str = split_data[1]
+    menu_list = ast.literal_eval(menu_list_str)
+    dinner_menu ={date: menu_list}
     if dinner_menu:
         image_path=create_menu_image(dinner_menu)
         upload_story(image_path)
