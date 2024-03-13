@@ -7,6 +7,7 @@ import schedule
 import time
 import argparse
 import requests
+import pickle
 
 from bs4 import BeautifulSoup 
 # 웹 페이지의 HTML 또는 XML을 파싱하기 위한 Python 라이브러리, bs4 패키지 안에 잇다. 
@@ -23,54 +24,74 @@ IG_PASSWORD = os.getenv("IG_PASSWORD")
 IG_CREDENTIAL_PATH = "./ig_settings.json"
 IG_IMAGE_PATH = "./menu"
 
-
-
 #웹 스크래핑을 수행할 함수
-def scrape_menu():
-    #요청할 url
+
+course = {
+    2: "조식",
+    3: "중식",
+    4: "석식"
+}
+
+def crawling():
     url = "https://jvision.ac.kr/vision/main/?menu=308"
-    
-    #URL로부터 HTML 가져오기
-    response = requests.get(url)
+    return requests.get(url)
 
-    # print(response.content) #해당 페이지의 소스코드
-    # BeautifulSoup 객체 생성
-    soup = BeautifulSoup( #html 내부를 검색
-        response.content, #html 넘겨주기
-        "html.parser",    #BeautifulSoup에게 어떠한 형태의 데이터를 넘겨줬는지 전달하기  
-        )
-
-    # 'foodlist' 클래스를 가진 div 태그 찾기
-    foodlist_div = soup.find("div", class_ ="foodlist")
-    if not foodlist_div:
-        print("식단 정보를 찾을 수 없습니다")
-        return None
-    
-
-    menus = []
-    for foodbox in foodlist_div.find_all("div", class_="foodbox"):
-        date_info = foodbox.find_previous_sibling("div", class_="foodayw").find("div", class_="fooday")
-        if date_info:
-            day = date_info.find("div", class_="fd2").text.strip()
-            year = date_info.find("div", class_="fd1").text.strip()
-            full_date = f"{year}.{day}"
-            print(f"날짜: {full_date}:")
-        else:
-            print('날짜 정보를 찾을 수 없습니다.')
+def parsing(pageString):
+    bsObj = BeautifulSoup(pageString, "html.parser")
+    data = {}
+    for date in [2, 3, 4, 5, 6]:
+        month = bsObj.select(f"body > section:nth-child(5) > div > div > div:nth-child({date}) > div.foodayw > div > div.fd1")
+        day = bsObj.select(f"body > section:nth-child(5) > div > div > div:nth-child({date}) > div.foodayw > div > div.fd2")
+        if not month or not day:
             continue
+        for order in [2, 3, 4]:
+            list = bsObj.select(f"body > section:nth-child(5) > div > div > div:nth-child({date}) > div:nth-child({order}) > div.fblist > ul > li")
+            if not list:
+                continue
+            menus = []
+            for item in list:
+                menus.append(item.text.strip())
+            data[f"{month[0].text.strip()}월 {day[0].text.strip()}일 {course[order]}"] = menus
 
-        meal_time=foodbox.find("div", class_="fbt").text.strip()
-        menu_items = foodbox.find("div", class_="fblist").find_all("li")
-        menu_text = f"{meal_time:}\n" + "\n".join(item.text.strip() for item in menu_items if item.text.strip())
-        for item in menu_items:
-                menu_text = item.text.strip()
-                if menu_text:
-                        print(f"- {menu_text}")
+    return data
 
+# 스크래핑 함수 실행 및 일주일치 점심, 석식 결과 저장
+
+def save_scrape_menu():
+    page = crawling()
+    scrape_menus = parsing(page.text)
+    if scrape_menus:
+        with open('scraped_menus.pkl', 'wb') as file:
+            pickle.dump(scrape_menus, file)
+
+
+menus = {}
+
+lunch_menu = []
+dinner_menu = []
+
+
+# 일자별 데이터 점심 메뉴 불러오기
+def get_lunch_and_dinner_menu_for_date():
+    specific_date = datetime.now().strftime('%Y.%m월 %d일')
+    try:
+        with open('scraped_menus.pkl', 'rb') as file:
+            menus = pickle.load(file)
+            #날짜에 해당하는 메뉴를 반환
+            lunch_menu = menus.get(f'{specific_date} 중식', "해당 날짜의 메뉴 정보가 없습니다." )
+            dinner_menu = menus.get(f'{specific_date} 석식', "해당 날짜의 메뉴 정보가 없습니다." )
+            lunch_menu_for_date = f'{specific_date} 중식: {lunch_menu}'
+            dinner_menu_for_date = f'{specific_date} 석식: {dinner_menu}'
+            return lunch_menu_for_date, dinner_menu_for_date
+    except FileNotFoundError:
+        print("식당 데이터 파일을 찾을 수 없습니다.")
+        return {}
+
+lunch_menu, dinner_menu = get_lunch_and_dinner_menu_for_date()
 
 # 이미지를 생성하는 함수
-def create_menu_image(menus):
-    if menus is None:
+def create_menu_image(daily_menus):
+    if daily_menus is None:
         return None
     
     #이미지 설정
@@ -81,13 +102,12 @@ def create_menu_image(menus):
     font_size=40
     padding = 50
 
-    image = Image.new('RGB', (image_width, image_height, backgroung_color))
+    image = Image.new('RGB', (image_width, image_height), backgroung_color)
     draw = ImageDraw.Draw(image)
     font = ImageFont.truetype("font.ttf", font_size) # 폰트 파일 경로 수정 필요
 
     current_height = padding
-    for date, menu_text in menus:
-        draw.text((padding, current_height), date, fill=text_color, font=font)
+    for menu_text in daily_menus:
         current_height += font_size + 10 #날짜와 메뉴 사이 간격 조정
         draw.text((padding, current_height), menu_text, fill=text_color, font=font)
         current_height += (menu_text.count('\n') + 1) * font_size + 20
@@ -107,20 +127,46 @@ def upload_story(image_path):
         cl.photo_upload_to_story(image_path)
         cl.dump_settings(IG_CREDENTIAL_PATH)
 
-# 메인 작업 함수
-def job():
-    menus = scrape_menu()
-    if menus:
-        image_path = create_menu_image(menus)
+def upload_lunch_menu():
+    today_date=datetime.now().strftime('%Y.%m월 %d일')
+    print(lunch_menu)
+    if lunch_menu:
+        image_path=create_menu_image(lunch_menu)
+        upload_story(image_path)
+
+def upload_dinner_menu():
+    today_date=datetime.now().strftime('%Y.%m월 %d일')
+    print(dinner_menu)
+    if dinner_menu:
+        image_path=create_menu_image(dinner_menu)
         upload_story(image_path)
 
 
+
 #스케줄링 설정
-schedule.every().day.at("06:00").do(job)
+schedule.every().monday.at("07:00").do(upload_lunch_menu, upload_dinner_menu)
+schedule.every().tuesday.at("07:00").do(upload_lunch_menu, upload_dinner_menu)
+schedule.every().wednesday.at("07:00").do(upload_lunch_menu, upload_dinner_menu)
+schedule.every().thursday.at("07:00").do(upload_lunch_menu, upload_dinner_menu)
+schedule.every().friday.at("07:00").do(upload_lunch_menu, upload_dinner_menu)
+
 
 #메인 실행
 if __name__ == "__main__":
     while True:
-        schedule.run_pending()
-        time.sleep(60)
-    
+        parser = argparse.ArgumentParser(description="upload Instagram story")
+        parser.add_argument("--uploadnow", action="store_true", help="upload ths stroy immediately")
+        args = parser.parse_args()
+
+        if args.uploadnow:
+            upload_lunch_menu()
+            upload_dinner_menu()
+        else:
+            print("Program initated.")
+
+            next_run = schedule.next_run()
+            print(f"Next scheduled run at: {next_run}")
+
+            while True:
+                schedule.run_pending()
+                time.sleep(1)            
